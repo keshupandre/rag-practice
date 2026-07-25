@@ -6,7 +6,7 @@ Values are loaded from the ``.env`` file and can be imported from any module in 
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,11 +28,19 @@ class Settings(BaseSettings):
         default="voyage-3.5-lite",
         validation_alias="VOYAGE_EMBEDDING_MODEL",
     )
-    google_api_key: SecretStr | None = Field(default=None, validation_alias="GOOGLE_API_KEY")
-    google_model: str = Field(default="gemini-2.5-flash", validation_alias="GOOGLE_MODEL")
-    google_embedding_model: str = Field(
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
+    gemini_model: str = Field(
+        default="gemini-2.5-flash",
+        validation_alias=AliasChoices("GEMINI_MODEL", "GOOGLE_MODEL"),
+    )
+    gemini_embedding_model: str = Field(
         default="gemini-embedding-001",
-        validation_alias="GOOGLE_EMBEDDING_MODEL",
+        validation_alias=AliasChoices(
+            "GEMINI_EMBEDDING_MODEL", "GOOGLE_EMBEDDING_MODEL"
+        ),
     )
 
     model_config = SettingsConfigDict(
@@ -42,11 +50,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def require_gemini_api_key(self) -> str:
+        """Return the Gemini API key or raise a clear setup error."""
+
+        if self.gemini_api_key is None:
+            raise RuntimeError(
+                "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in the repository .env file."
+            )
+        return self.gemini_api_key.get_secret_value()
+
 
 @lru_cache
 def get_settings() -> Settings:
     """Return the cached application settings."""
 
     return Settings()
-
-

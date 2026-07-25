@@ -35,7 +35,7 @@ Build:
    Stack: Python, OpenAI/Anthropic SDK, Rich.
 
 
-### Phase 1 — Core RAG Pipeline (Weeks 3–4)
+### Phase 1 — Core RAG Pipeline
 
 **Goal:** Build the load → chunk → embed → retrieve → generate loop end to end.
 
@@ -55,7 +55,7 @@ Build:
    Stack: Python, FAISS, tiktoken.
 
 
-### Phase 2 — Chunking & Vector Databases (Weeks 5–6)
+### Phase 2 — Chunking & Vector Databases
 
 **Goal:** Treat indexing as a product: choose chunking deliberately, use metadata, and operate a durable store.
 
@@ -75,7 +75,7 @@ Build:
    Stack: Qdrant or Elasticsearch, FastAPI, Docker.
 
 
-### Phase 3 — Advanced Retrieval (Weeks 7–9)
+### Phase 3 — Advanced Retrieval
 
 **Goal:** Improve answer quality with query transformations, rerankers, and multi-step retrieval.
 
@@ -95,7 +95,7 @@ Build:
    Stack: LlamaIndex and a vector database.
 
 
-### Phase 4 — Evaluation & Production (Weeks 10–12)
+### Phase 4 — Evaluation & Production
 
 **Goal:** Ship reliable RAG with metrics, observability, latency and cost controls, and security safeguards.
 
@@ -115,7 +115,7 @@ Build:
    Stack: FastAPI, Redis, Phoenix or LangSmith, Docker.
 
 
-### Phase 5 — Agentic & Multimodal RAG (Weeks 13–16)
+### Phase 5 — Agentic & Multimodal RAG
 
 **Goal:** Go beyond single-shot text RAG with tools, agents, and non-text modalities.
 

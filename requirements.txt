@@ -5,4 +5,4 @@ rich>=13.9.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 voyageai>=0.3.0
-voyageai
+google-genai
