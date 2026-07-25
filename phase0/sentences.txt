@@ -1,0 +1,20 @@
+Embeddings convert text into numeric vectors that capture semantic meaning.
+Vector embeddings help a RAG system find documents with similar meanings.
+A vegetable soup tastes best after carrots and onions simmer slowly in broth.
+To make soup, cook onions and vegetables in stock until they are tender.
+Saturn is a gas giant surrounded by a prominent system of rings.
+Chunking splits large documents into smaller passages for efficient retrieval.
+A vector database stores embeddings and returns the most relevant passages.
+Hybrid search combines keyword matching with dense-vector similarity.
+Rerankers improve retrieval quality by scoring a small set of candidate passages.
+Good RAG answers should cite the sources that support their claims.
+Evaluation sets contain representative questions and expected answers.
+Faithfulness measures whether an answer is supported by the retrieved context.
+Prompt injection is an attack that tries to override an application's instructions.
+Caching repeated requests can reduce latency and model costs.
+Docker packages an application with its dependencies for consistent deployment.
+The weather is sunny and warm this afternoon.
+A bicycle is a practical way to travel short distances.
+Reading books regularly can improve vocabulary and critical thinking.
+Coffee contains caffeine, which can temporarily increase alertness.
+The ocean covers most of Earth's surface.
