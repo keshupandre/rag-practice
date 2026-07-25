@@ -34,6 +34,14 @@ def embed_texts(texts: list[str], client, model: str) -> np.ndarray:
 def cosine_matrix(embeddings: np.ndarray) -> np.ndarray:
     return embeddings @ embeddings.T
 
+def query_neighbour(query: str, sentences: list[str], client, model: str, k: int, corpus_embeddings: np.ndarray) -> None:
+    query_embedding= embed_texts([query],client,model)[0]
+    scores= corpus_embeddings @ query_embedding
+    order= np.argsort(scores)[::-1][:k]
+
+    for rank, idx in enumerate(order):
+        print(f"Rank {rank+1}: {sentences[idx]} (score: {scores[idx]:.3f})")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Playground for embeddings")
@@ -42,6 +50,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_CORPUS,
         help="Path to a newline-delimited sentences file.",
+    )
+    parser.add_argument(
+        "--query",
+        type= str,
+        default= "",
+        help= "Add your query"
+    )
+    parser.add_argument(
+        "--k",
+        type= int,
+        default= 3
     )
     return parser.parse_args()
 
@@ -64,6 +83,13 @@ def main() -> None:
             if i == j:
                 continue
             print(f"    vs {j} : {similarity_matrix[i][j]:.3f} {other}")
+
+
+    if args.query :
+        print(f"\n \n query embedding for {args.query} \n")
+
+        query_neighbour(args.query,sentences,client,settings.voyage_embedding_model,args.k,embeddings)
+
 
 
 
