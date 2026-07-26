@@ -2,6 +2,8 @@
 import argparse
 from pathlib import Path
 import sys
+from rich.console import Console
+from rich.table import Table
 
 import numpy as np
 import voyageai
@@ -12,6 +14,7 @@ from phase0.config import get_settings
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CORPUS = PROJECT_ROOT / "phase0" / "sentences.txt"
 
+console = Console()
 
 def load_sentences(path: Path) -> list[str]:
     sentences: list[str] = []
@@ -34,13 +37,83 @@ def embed_texts(texts: list[str], client, model: str) -> np.ndarray:
 def cosine_matrix(embeddings: np.ndarray) -> np.ndarray:
     return embeddings @ embeddings.T
 
-def query_neighbour(query: str, sentences: list[str], client, model: str, k: int, corpus_embeddings: np.ndarray) -> None:
-    query_embedding= embed_texts([query],client,model)[0]
-    scores= corpus_embeddings @ query_embedding
-    order= np.argsort(scores)[::-1][:k]
+from typing import TypedDict
 
-    for rank, idx in enumerate(order):
-        print(f"Rank {rank+1}: {sentences[idx]} (score: {scores[idx]:.3f})")
+
+class RankedChunk(TypedDict):
+    rank: int
+    score: float
+    chunk: dict
+
+
+def rank_chunks(
+    chunks: list[dict],
+    query_embedding: np.ndarray,
+    corpus_emb: np.ndarray,
+    k: int,
+) -> list[RankedChunk]:
+    scores = corpus_emb @ query_embedding
+    order = np.argsort(scores)[::-1][:k]
+
+    results: list[RankedChunk] = []
+    for rank, idx in enumerate(order, start=1):
+        i = int(idx)
+        results.append(
+            {
+                "rank": rank,
+                "score": float(scores[i]),
+                "chunk": chunks[i],
+            }
+        )
+    return results
+
+
+def print_ranked_chunks(query: str, ranked: list[RankedChunk]) -> None:
+    table = Table(title=f'Query: "{query}"')
+    table.add_column("Rank", justify="right")
+    table.add_column("ID", justify="right")
+    table.add_column("Score", justify="right")
+    table.add_column("Source")
+    table.add_column("Text")
+    for item in ranked:
+        chunk = item["chunk"]
+        text = chunk["text"].replace("\n", " ")
+        if len(text) > 80:
+            text = text[:77] + "..."
+        table.add_row(
+            str(item["rank"]),
+            str(chunk.get("id", "")),
+            f"{item['score']:.3f}",
+            str(chunk.get("source", "")),
+            text,
+        )
+    console.print(table)
+
+
+def query_neighbors(
+    client,
+    model: str,
+    sentences: list[str],
+    corpus_emb: np.ndarray,
+    query: str,
+    k: int,
+) -> list[dict]:
+    q = embed_text(client, model, [query])[0]
+    chunks = [{"id": i, "source": "", "text": s} for i, s in enumerate(sentences)]
+    ranked = rank_chunks(chunks, q, corpus_emb, k)
+
+    table = Table(title=f'Query: "{query}"')
+    table.add_column("Rank", justify="right")
+    table.add_column("Score", justify="right")
+    table.add_column("Sentence")
+    for item in ranked:
+        table.add_row(
+            str(item["rank"]),
+            f"{item['score']:.3f}",
+            item["chunk"]["text"],
+        )
+    console.print(table)
+    return [{"rank": r["rank"], "score": r["score"], "text": r["chunk"]["text"]} for r in ranked]
 
 
 def parse_args() -> argparse.Namespace:
