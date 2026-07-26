@@ -1,4 +1,9 @@
 
+import argparse
+from datetime import UTC, datetime
+import json
+from pathlib import Path
+
 from google import genai
 from google.genai.interactions import Usage
 from rich import box
@@ -8,7 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from phase0.config import get_settings
+from phase0.config import PROJECT_ROOT, get_settings
 
 console = Console()
 
@@ -18,6 +23,32 @@ TOKEN_FIELDS = (
     ("Thought", "total_thought_tokens"),
     ("Total", "total_tokens"),
 )
+
+
+def default_transcript_path() -> Path:
+    """Return a unique JSONL path for the current chat session."""
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return PROJECT_ROOT / "phase0" / "chat" / "transcripts" / f"chat-{timestamp}.jsonl"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Chat with Gemini from the terminal.")
+    parser.add_argument(
+        "--transcript",
+        type=Path,
+        default=default_transcript_path(),
+        help="JSONL file used to store completed chat turns.",
+    )
+    return parser.parse_args()
+
+
+def append_transcript(transcript_path: Path, record: dict[str, object]) -> None:
+    """Append one JSON-serializable record without losing earlier chat turns."""
+
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    with transcript_path.open("a", encoding="utf-8") as transcript_file:
+        transcript_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def add_token_usage(usage: Usage | None, totals: dict[str, int]) -> dict[str, int]:
@@ -58,6 +89,7 @@ def print_history(history: list[tuple[str, str]]) -> None:
 
 
 def main() -> None:
+    args = parse_args()
     settings = get_settings()
     client = genai.Client(api_key=settings.require_gemini_api_key())
     history: list[tuple[str, str]] = []
@@ -75,6 +107,7 @@ def main() -> None:
             border_style="blue",
         )
     )
+    console.print(f"[dim]Transcript: {args.transcript}[/]")
 
     while True:
         try:
@@ -111,6 +144,7 @@ def main() -> None:
         if previous_interaction_id is not None:
             request["previous_interaction_id"] = previous_interaction_id
 
+        parent_interaction_id = previous_interaction_id
         interaction = client.interactions.create(**request)
         assistant_text = interaction.output_text or ""
         history.append((user_text, assistant_text))
@@ -118,6 +152,19 @@ def main() -> None:
         console.print(f"[bold green]Gemini >[/] {assistant_text}")
 
         turn_usage = add_token_usage(interaction.usage, tokens)
+        append_transcript(
+            args.transcript,
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "type": "chat_turn",
+                "model": settings.gemini_model,
+                "interaction_id": interaction.id,
+                "previous_interaction_id": parent_interaction_id,
+                "user": user_text,
+                "assistant": assistant_text,
+                "token_usage": turn_usage,
+            },
+        )
         if turn_usage:
             usage_text = " · ".join(f"{label}: {value:,}" for label, value in turn_usage.items())
             console.print(f"[dim]This response — {usage_text}[/]")
