@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
     voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
     voyage_embedding_model: str = Field(
-        default="voyage-3.5-lite",
+        default="voyage-3",
         validation_alias="VOYAGE_EMBEDDING_MODEL",
     )
     gemini_api_key: SecretStr | None = Field(
@@ -49,6 +49,15 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    def require_voyage_api_key(self) -> str:
+            """Return the Voyage API key or raise a clear setup error."""
+    
+            if self.voyage_api_key is None:
+                raise RuntimeError(
+                    "Set VOYAGE_API_KEY in the repository .env file."
+                )
+            return self.voyage_api_key.get_secret_value()
 
     def require_gemini_api_key(self) -> str:
         """Return the Gemini API key or raise a clear setup error."""
