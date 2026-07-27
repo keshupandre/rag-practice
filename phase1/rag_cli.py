@@ -1,99 +1,49 @@
-
 import argparse
 from datetime import UTC, datetime
-import json
 from pathlib import Path
 
 from google import genai
-from google.genai.interactions import Usage
-from rich import box
+import numpy as np
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+import voyageai
 
-from phase0.config import PROJECT_ROOT, get_settings
+from phase0.chat.cli import add_token_usage, append_transcript, default_transcript_path, print_history, print_token_table
+from phase0.config import get_settings
+from phase0.embeddings.playground import embed_texts, rank_chunks
+from phase1.retrieve import load_chunks
 
 console = Console()
 
-TOKEN_FIELDS = (
-    ("Input", "total_input_tokens"),
-    ("Output", "total_output_tokens"),
-    ("Thought", "total_thought_tokens"),
-    ("Total", "total_tokens"),
-)
+ROOT_DIR = Path(__file__).parents[1]
+INDEX_DIR = ROOT_DIR / "data" / "index"
 
+CHUNK_PATH = INDEX_DIR / "chunks.jsonl"
+EMBEDDINGS_PATH = INDEX_DIR / "embeddings.npy"
 
-def default_transcript_path() -> Path:
-    """Return a unique JSONL path for the current chat session."""
-
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return PROJECT_ROOT / "data" / "transcripts" / f"chat-{timestamp}.jsonl"
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Chat with Gemini from the terminal.")
+def parse_args()-> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--k", type=int, default=3)
     parser.add_argument(
         "--transcript",
-        type=Path,
-        default=default_transcript_path(),
-        help="JSONL file used to store completed chat turns.",
+        type= Path,
+        default= default_transcript_path()
     )
-    return parser.parse_args()
-
-
-def append_transcript(transcript_path: Path, record: dict[str, object]) -> None:
-    """Append one JSON-serializable record without losing earlier chat turns."""
-
-    transcript_path.parent.mkdir(parents=True, exist_ok=True)
-    with transcript_path.open("a", encoding="utf-8") as transcript_file:
-        transcript_file.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def add_token_usage(usage: Usage | None, totals: dict[str, int]) -> dict[str, int]:
-
-    if usage is None:
-        return {}
-
-    turn_usage: dict[str, int] = {}
-    for label, field in TOKEN_FIELDS:
-        value = getattr(usage, field)
-        if value is not None:
-            totals[label] += value
-            turn_usage[label] = value
-    return turn_usage
-
-
-def print_token_table(tokens: dict[str, int], title: str) -> None:
-
-    table = Table(title=title, box=box.SIMPLE_HEAVY, show_header=False)
-    table.add_column("Metric", style="cyan")
-    table.add_column("Tokens", justify="right", style="bold")
-    for label, _ in TOKEN_FIELDS:
-        table.add_row(label, f"{tokens[label]:,}")
-    console.print(table)
-
-
-def print_history(history: list[tuple[str, str]]) -> None:
-
-    if not history:
-        console.print("[dim]No messages in this session yet.[/]")
-        return
-
-    for index, (user_text, assistant_text) in enumerate(history, start=1):
-        console.print(Panel(Text(user_text), title=f"You · {index}", border_style="cyan"))
-        console.print(
-            Panel(Markdown(assistant_text), title=f"Gemini · {index}", border_style="green")
-        )
+    return parser.parse_args()       
 
 
 def main() -> None:
     args = parse_args()
     settings = get_settings()
+
     client = genai.Client(api_key=settings.require_gemini_api_key())
+    embedding_client = voyageai.Client(api_key=settings.require_voyage_api_key())
+    
+    chunks = load_chunks(CHUNK_PATH)
+    embeddings = np.load(EMBEDDINGS_PATH)
     history: list[tuple[str, str]] = []
     previous_interaction_id: str | None = None
+
     tokens = {
         "Input": 0,
         "Output": 0,
@@ -136,16 +86,37 @@ def main() -> None:
             print_token_table(tokens, "Session token usage")
             continue
 
-        request = {
+        query_embedding = embed_texts([user_text], embedding_client, settings.voyage_embedding_model)[0]
+        ranked_chunks = rank_chunks(chunks,query_embedding, embeddings, args.k)
+
+        context ="\n\n".join(f"[chunk {r['chunk']['id']}] {r['chunk']['text']}" for r in ranked_chunks)
+
+        create_kwargs: dict = {
             "model": settings.gemini_model,
-            "input": user_text,
-            "store": True,
+            "input": f"""
+            Use the provided background reference data to answer the user query accurately.
+            If the answer cannot be found in the context, state that clearly.
+
+            [Reference Data]
+            {context}
+
+            [User Query]
+            {user_text}
+            """,
         }
         if previous_interaction_id is not None:
-            request["previous_interaction_id"] = previous_interaction_id
+            create_kwargs["previous_interaction_id"] = previous_interaction_id
 
         parent_interaction_id = previous_interaction_id
-        interaction = client.interactions.create(**request)
+        interaction = client.interactions.create(**create_kwargs)
+
+        print("\n\nAnswer:\n")
+        print(interaction.output_text)
+        
+        source_ids = [r["chunk"]["id"] for r in ranked_chunks]
+        print(f"\nSources: {source_ids}")
+
+        
         assistant_text = interaction.output_text or ""
         history.append((user_text, assistant_text))
         previous_interaction_id = interaction.id
@@ -168,6 +139,8 @@ def main() -> None:
         if turn_usage:
             usage_text = " · ".join(f"{label}: {value:,}" for label, value in turn_usage.items())
             console.print(f"[dim]This response — {usage_text}[/]")
+
+
 
 
 

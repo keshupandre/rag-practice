@@ -98,7 +98,7 @@ def query_neighbors(
     query: str,
     k: int,
 ) -> list[dict]:
-    q = embed_text(client, model, [query])[0]
+    q = embed_texts(client, model, [query])[0]
     chunks = [{"id": i, "source": "", "text": s} for i, s in enumerate(sentences)]
     ranked = rank_chunks(chunks, q, corpus_emb, k)
 
@@ -161,7 +161,7 @@ def main() -> None:
     if args.query :
         print(f"\n \n query embedding for {args.query} \n")
 
-        query_neighbour(args.query,sentences,client,settings.voyage_embedding_model,args.k,embeddings)
+        query_neighbors(args.query,sentences,client,settings.voyage_embedding_model,args.k,embeddings)
 
 
 
