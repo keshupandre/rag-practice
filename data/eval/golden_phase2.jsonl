@@ -1,0 +1,12 @@
+{"query": "What is hybrid search?", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "BM25 metadata filters tenant_id", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "When should you re-embed all chunks after changing the embedding model?", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "recall@k golden set expected source files", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "RRF weighted sums fuse dense and sparse retrieval", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "Why use chunk overlap between consecutive chunks?", "expected_sources": ["rag_notes.md"]}
+{"query": "How do embeddings enable semantic search?", "expected_sources": ["rag_notes.md"]}
+{"query": "What is the RAG pipeline from query to answer?", "expected_sources": ["rag_notes.md"]}
+{"query": "What causes hallucinations when grounding is weak?", "expected_sources": ["rag_notes.md"]}
+{"query": "Top-K retrieval and vector similarity", "expected_sources": ["rag_notes.md"]}
+{"query": "pre-filtering vs post-filtering metadata in vector search", "expected_sources": ["hybrid_search_notes.md"]}
+{"query": "typical chunk size 200 to 1000 tokens", "expected_sources": ["rag_notes.md"]}

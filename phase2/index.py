@@ -13,8 +13,9 @@ from pinecone import Pinecone
 
 from phase0.config import get_settings
 from phase0.embeddings.playground import embed_texts
+from phase2.bm25_index import print_results
 from phase2.chunk import chunk_text, load_markdown
-from phase2.store import clear_index, print_search_matches, search_chunks, upsert_chunks
+from phase2.store import clear_index, matches_to_results, search_chunks, upsert_chunks
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 INDEX_DIR = ROOT_DIR / "data" / "index"
@@ -93,25 +94,22 @@ def write_local_index(chunks: list[dict], meta: dict) -> None:
 
 def run_query(
     query: str,
-    *,
     client: voyageai.Client,
     index,
     settings,
     top_k: int,
-) -> None:
+) -> list[dict]:
     query_embedding = embed_texts(
         [query],
         client,
         model=settings.voyage_embedding_model,
     )
     matches = search_chunks(query_embedding, index, top_k=top_k)
-    print(f"\nQuery: {query}\n")
-    print_search_matches(matches)
+    return matches_to_results(matches)
 
 
 def run_index(
     args: argparse.Namespace,
-    *,
     client: voyageai.Client,
     index,
     settings,
@@ -172,13 +170,15 @@ def main() -> None:
     index = pc.Index(name=settings.pinecone_index_name)
 
     if args.query:
-        run_query(
+        results = run_query(
             args.query,
             client=client,
             index=index,
             settings=settings,
             top_k=args.top_k,
         )
+        print(f"\nQuery: {args.query}\n")
+        print_results(results)
         return
 
     run_index(args, client=client, index=index, settings=settings)

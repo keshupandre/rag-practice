@@ -71,6 +71,20 @@ def upsert_chunks(
     return upserted
 
 
+def match_to_result(match: Any) -> dict:
+    meta = match.metadata or {}
+    return {
+        "id": int(match.id),
+        "score": float(match.score),
+        "source": meta.get("source", ""),
+        "text": meta.get("text", ""),
+    }
+
+
+def matches_to_results(matches: list[Any]) -> list[dict]:
+    return [match_to_result(match) for match in matches]
+
+
 def search_chunks(
     query_embedding: np.ndarray,
     index: Index,
