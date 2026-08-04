@@ -68,6 +68,17 @@ class Settings(BaseSettings):
             )
         return self.gemini_api_key.get_secret_value()
 
+    pinecone_api_key: SecretStr | None = Field(default=None, validation_alias="PINECONE_API_KEY")
+    pinecone_index_name: str = Field(default="phase2-index", validation_alias="PINECONE_INDEX_NAME")
+
+    def require_pinecone_api_key(self) -> str:
+        """Return the Pinecone API key or raise a clear setup error."""
+
+        if self.pinecone_api_key is None:
+            raise RuntimeError(
+                "Set PINECONE_API_KEY in the repository .env file."
+            )
+        return self.pinecone_api_key.get_secret_value()
 
 @lru_cache
 def get_settings() -> Settings:
