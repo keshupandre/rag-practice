@@ -2,13 +2,7 @@
 
 import argparse
 from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parent
-DEFAULT_FILE_PATH = ROOT/"docs"/"rag_notes.md"
-
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_OVERLAP = 50
+import fitz 
 
 def load_markdown(path:Path)->str:
     with open(path,"r",encoding="utf-8") as f:
@@ -28,37 +22,50 @@ def chunk_text(text:str,chunk_size:int,overlap:int)-> list[str]:
 
     return chunks
 
-def parse_arg() -> argparse.Namespace:
-    parser= argparse.ArgumentParser()
-    parser.add_argument(
-        "--file_path",
-        type= Path,
-        default= DEFAULT_FILE_PATH
-    )
-    parser.add_argument(
-        "--chunk_size",
-        type= int,
-        default= DEFAULT_CHUNK_SIZE
-    )
-    parser.add_argument(
-        "--overlap",
-        type= int,
-        default= DEFAULT_OVERLAP
-    )
 
-    return parser.parse_args()
+def collect_chunks(
+    markdown_files: list[Path],
+    pdf_files: list[Path] = [],
+    *,
+    chunk_size: int,
+    overlap: int,
+) -> list[dict]:
+    records: list[dict] = []
+    next_id = 0
 
-def main() -> None:
-    args= parse_arg()
+    for path in markdown_files:
+        text = load_markdown(path)
+        texts = chunk_text(text, chunk_size, overlap)
+        for text_chunk in texts:
+            records.append(
+                {
+                    "id": next_id,
+                    "source": path.name,
+                    "chunk_size": chunk_size,
+                    "overlap": overlap,
+                    "text": text_chunk,
+                }
+            )
+            next_id += 1
+        print(f"file: {path.name}, n_chunks: {len(texts)}")
 
-    text= load_markdown(args.file_path)
+    for path in pdf_files:
+        doc = fitz.open(path)
+        text = ""
 
-    chunks= chunk_text(text,args.chunk_size,args.overlap)
+        for page_num, page in enumerate(doc):
+            text += page.get_text()
+        
+        texts = chunk_text(text, chunk_size, overlap)
+        for text_chunk in texts:
+            records.append({
+                "id": next_id,
+                "source": path.name,
+                "chunk_size": chunk_size,
+                "overlap": overlap,
+                "text": text_chunk,
+            })
+            next_id += 1
+        print(f"file: {path.name}, n_chunks: {len(texts)}")
 
-    print(f"Total Chunks : {len(chunks)}")
-    print(f"Chunk length : {len(chunks[0])}")
-    print(f"sample Chunk : {chunks[0][:120]} ....")
-
-
-if __name__ == "__main__":
-    main()
+    return records

@@ -69,6 +69,8 @@ def main() -> None:
     bm25 = build_bm25(chunks)
 
     hits = 0
+    hits_vector = 0
+    hits_bm25 = 0
     for i, query in enumerate(queries):
         if i > 0 and args.embed_delay > 0:
             print(f"Waiting {args.embed_delay:.0f}s (Voyage rate limit)...")
@@ -85,19 +87,31 @@ def main() -> None:
         )
 
         actual_sources = [result["source"] for result in hybrid_results]
+        matched_vector = hit_at_k(vector_results, query["expected_sources"])
+        matched_bm25 = hit_at_k(bm25_results, query["expected_sources"])
         matched = hit_at_k(hybrid_results, query["expected_sources"])
 
         print(f"\nQuery: {query['query']}  (alpha={args.alpha})\n")
         print_results(hybrid_results)
         print(f"Expected: {query['expected_sources']}")
         print(f"Actual (top-{args.top_k}): {actual_sources}")
+        print(f"Vector hit: {matched_vector}")
+        print(f"BM25 hit: {matched_bm25}")
         print("Hit @ k" if matched else "Miss @ k")
 
         if matched:
             hits += 1
+        if matched_vector:
+            hits_vector += 1
+        if matched_bm25:
+            hits_bm25 += 1
 
     if queries:
         recall = hits / len(queries)
+        recall_vector = hits_vector / len(queries)
+        recall_bm25 = hits_bm25 / len(queries)
+        print(f"Vector hit: {hits_vector}/{len(queries)} ({recall_vector:.0%})")
+        print(f"BM25 hit: {hits_bm25}/{len(queries)} ({recall_bm25:.0%})")
         print(f"\nRecall@{args.top_k}: {hits}/{len(queries)} ({recall:.0%})")
 
 

@@ -8,3 +8,5 @@ voyageai>=0.3.0
 google-genai
 pinecone
 rank-bm25
+faiss-cpu
+pymupdf

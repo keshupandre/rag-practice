@@ -5,25 +5,25 @@ from pathlib import Path
 from google import genai
 import numpy as np
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 import voyageai
 
 from phase0.chat.cli import add_token_usage, append_transcript, default_transcript_path, print_history, print_token_table
 from phase0.config import get_settings
 from phase0.embeddings.playground import embed_texts, rank_chunks
-from phase1.retrieve import load_chunks
+from phase1.ask import rank_chunks_faiss
+from phase1.rag_input import build_rag_input
+from phase1.retrieve import load_index
 
 console = Console()
 
 ROOT_DIR = Path(__file__).parents[1]
-INDEX_DIR = ROOT_DIR / "data" / "index"
-
-CHUNK_PATH = INDEX_DIR / "chunks.jsonl"
-EMBEDDINGS_PATH = INDEX_DIR / "embeddings.npy"
 
 def parse_args()-> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--k", type=int, default=3)
+    parser.add_argument("--rank_method", type=str, default="cosine", choices=["cosine", "faiss"])
     parser.add_argument(
         "--transcript",
         type= Path,
@@ -39,8 +39,7 @@ def main() -> None:
     client = genai.Client(api_key=settings.require_gemini_api_key())
     embedding_client = voyageai.Client(api_key=settings.require_voyage_api_key())
     
-    chunks = load_chunks(CHUNK_PATH)
-    embeddings = np.load(EMBEDDINGS_PATH)
+    chunks, embeddings = load_index()
     history: list[tuple[str, str]] = []
     previous_interaction_id: str | None = None
 
@@ -69,7 +68,7 @@ def main() -> None:
         if not user_text:
             continue
 
-        if user_text in {"/quit", "/exit", ":q"}:
+        if user_text in {"/quit", "quit", "/exit", "exit", ":q", "/q"}:
             break
 
         if user_text == "/history":
@@ -87,22 +86,19 @@ def main() -> None:
             continue
 
         query_embedding = embed_texts([user_text], embedding_client, settings.voyage_embedding_model)[0]
-        ranked_chunks = rank_chunks(chunks,query_embedding, embeddings, args.k)
+        ranked_chunks: list[dict] = []
+        if args.rank_method == "cosine":
+            ranked_chunks = rank_chunks(chunks,query_embedding, embeddings, args.k)
+        elif args.rank_method == "faiss":
+            ranked_chunks = rank_chunks_faiss(chunks, query_embedding, embeddings, args.k)
+        else:
+            raise ValueError(f"Invalid rank method: {args.rank_method}. Choose from 'cosine' or 'faiss'.")
 
         context ="\n\n".join(f"[chunk {r['chunk']['id']}] {r['chunk']['text']}" for r in ranked_chunks)
-
+        rag_input = build_rag_input(user_text, context)
         create_kwargs: dict = {
             "model": settings.gemini_model,
-            "input": f"""
-            Use the provided background reference data to answer the user query accurately.
-            If the answer cannot be found in the context, state that clearly.
-
-            [Reference Data]
-            {context}
-
-            [User Query]
-            {user_text}
-            """,
+            "input": rag_input
         }
         if previous_interaction_id is not None:
             create_kwargs["previous_interaction_id"] = previous_interaction_id
@@ -110,17 +106,16 @@ def main() -> None:
         parent_interaction_id = previous_interaction_id
         interaction = client.interactions.create(**create_kwargs)
 
-        print("\n\nAnswer:\n")
-        print(interaction.output_text)
-        
-        source_ids = [r["chunk"]["id"] for r in ranked_chunks]
-        print(f"\nSources: {source_ids}")
-
-        
         assistant_text = interaction.output_text or ""
+        source_ids = [r["chunk"]["id"] for r in ranked_chunks]
+
+        console.print()
+        console.print("[bold green]Gemini[/]")
+        console.print(escape(assistant_text))
+        console.print(f"[dim]Sources: {source_ids}[/]")
+
         history.append((user_text, assistant_text))
         previous_interaction_id = interaction.id
-        console.print(f"[bold green]Gemini >[/] {assistant_text}")
 
         turn_usage = add_token_usage(interaction.usage, tokens)
         append_transcript(
