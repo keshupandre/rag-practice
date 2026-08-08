@@ -5,9 +5,9 @@ from rank_bm25 import BM25Okapi
 import numpy as np
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-INDEX_DIR = ROOT_DIR / "data" / "index"
-CHUNK_PATH = INDEX_DIR / "chunks.jsonl"
+from phase2.paths import DEFAULT_STRATEGY, INDEX_BUILD_HINT, resolve_chunks_path
+
+STRATEGY_CHOICES = ("paragraph", "fixed")
 
 
 def load_chunks(path:Path)-> list[dict]:
@@ -61,12 +61,30 @@ def parse_args()-> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build or query the Phase 2 bm25 sparse index")
     parser.add_argument("--top_k", type=int, default=5, help="The number of results to return")
     parser.add_argument("--query", type=str, default="", help="The query to search for")
-    parser.add_argument("--chunks-path", type=Path, default=CHUNK_PATH, help="The path to the file to index")
+    parser.add_argument(
+        "--strategy",
+        choices=STRATEGY_CHOICES,
+        default=DEFAULT_STRATEGY,
+        help="Chunking strategy used at index time",
+    )
+    parser.add_argument(
+        "--chunks-path",
+        type=Path,
+        default=None,
+        help="Override chunks JSONL (default: data/index/chunks_<strategy>.jsonl)",
+    )
     return parser.parse_args()
 
 def main()-> None:
     args = parse_args()
-    chunks = load_chunks(args.chunks_path)
+    chunks_path = resolve_chunks_path(args.strategy, args.chunks_path)
+    if not chunks_path.exists():
+        raise SystemExit(
+            f"Missing chunks file: {chunks_path}. "
+            f"{INDEX_BUILD_HINT.format(strategy=args.strategy)}"
+        )
+
+    chunks = load_chunks(chunks_path)
     query = args.query
 
     if not query.strip():

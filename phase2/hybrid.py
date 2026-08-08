@@ -7,10 +7,9 @@ import voyageai
 from phase0.config import get_settings
 from phase2.bm25_index import bm25_search, build_bm25, load_chunks, print_results
 from phase2.index import run_query
+from phase2.paths import DEFAULT_STRATEGY, INDEX_BUILD_HINT, resolve_chunks_path
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-INDEX_DIR = ROOT_DIR / "data" / "index"
-CHUNK_PATH = INDEX_DIR / "chunks.jsonl"
+STRATEGY_CHOICES = ("paragraph", "fixed")
 
 
 def fuse_hybrid(
@@ -56,7 +55,18 @@ def arg_parser() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build or query the Phase 2 hybrid index")
     parser.add_argument("--query", type=str, default="", help="The query to search for")
     parser.add_argument("--top_k", type=int, default=5, help="The number of results to return")
-    parser.add_argument("--chunks-path", type=Path, default=CHUNK_PATH, help="The path to the file to index")
+    parser.add_argument(
+        "--strategy",
+        choices=STRATEGY_CHOICES,
+        default=DEFAULT_STRATEGY,
+        help="Chunking strategy used at index time (selects chunks_<strategy>.jsonl)",
+    )
+    parser.add_argument(
+        "--chunks-path",
+        type=Path,
+        default=None,
+        help="Override chunks JSONL (default: data/index/chunks_<strategy>.jsonl)",
+    )
     parser.add_argument("--alpha", type=float, default=0.5, help="The alpha value for the hybrid index")
     return parser.parse_args()
 
@@ -73,7 +83,14 @@ def main() -> None:
     pc = Pinecone(api_key=settings.require_pinecone_api_key())
     index = pc.Index(name=settings.pinecone_index_name)
 
-    chunks = load_chunks(args.chunks_path)
+    chunks_path = resolve_chunks_path(args.strategy, args.chunks_path)
+    if not chunks_path.exists():
+        raise SystemExit(
+            f"Missing chunks file: {chunks_path}. "
+            f"{INDEX_BUILD_HINT.format(strategy=args.strategy)}"
+        )
+
+    chunks = load_chunks(chunks_path)
     bm25 = build_bm25(chunks)
     bm25_results = bm25_search(bm25, chunks, query, args.top_k)
     normalized_bm25_results = normalize_bm25_score(bm25_results)

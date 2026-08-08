@@ -13,16 +13,12 @@ from pinecone import Pinecone
 
 from phase0.config import get_settings
 from phase0.embeddings.playground import embed_texts
-from phase2.bm25_index import print_results
-from phase2.chunk import chunk_text, load_markdown
+from phase2.bm25_index import load_chunks, print_results
+from phase2.chunk import collect_chunks
+from phase2.paths import DEFAULT_STRATEGY, INDEX_DIR, index_paths
 from phase2.store import clear_index, matches_to_results, search_chunks, upsert_chunks
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-INDEX_DIR = ROOT_DIR / "data" / "index"
-CHUNK_PATH = INDEX_DIR / "chunks.jsonl"
-INDEX_META_PATH = INDEX_DIR / "index_meta.json"
-EMBEDDINGS_PATH = INDEX_DIR / "embeddings.npy"
-DEFAULT_FILE_DIR = ROOT_DIR / "phase2" / "docs"
+DEFAULT_FILE_DIR = Path(__file__).resolve().parents[1] / "phase2" / "docs"
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_OVERLAP = 50
 
@@ -40,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--strategy",
         choices=["paragraph", "fixed"],
-        default="paragraph",
+        default=DEFAULT_STRATEGY,
         help="Chunking strategy",
     )
     parser.add_argument("--query", type=str, default="", help="Query Pinecone instead of indexing")
@@ -48,48 +44,59 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def collect_chunks(
-    files: list[Path],
+def write_local_index(
+    chunks: list[dict],
+    meta: dict,
     *,
-    strategy: str,
-    chunk_size: int,
-    overlap: int,
-) -> list[dict]:
-    records: list[dict] = []
-    next_id = 0
-
-    for path in files:
-        text = load_markdown(path)
-        texts = chunk_text(text, strategy, chunk_size, overlap)
-        for text_chunk in texts:
-            records.append(
-                {
-                    "id": next_id,
-                    "source": path.name,
-                    "strategy": strategy,
-                    "chunk_size": chunk_size,
-                    "overlap": overlap,
-                    "text": text_chunk,
-                }
-            )
-            next_id += 1
-        print(f"file: {path.name}, n_chunks: {len(texts)}")
-
-    return records
-
-
-def write_local_index(chunks: list[dict], meta: dict) -> None:
+    chunk_path: Path,
+    meta_path: Path,
+) -> None:
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
-    with CHUNK_PATH.open("w", encoding="utf-8") as f:
+    with chunk_path.open("w", encoding="utf-8") as f:
         for chunk in chunks:
             f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
 
-    INDEX_META_PATH.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     print(f"n_chunks: {len(chunks)}")
-    print(f"saved: {CHUNK_PATH}")
-    print(f"saved: {INDEX_META_PATH}")
+    print(f"saved: {chunk_path}")
+    print(f"saved: {meta_path}")
+
+
+def load_index_meta(meta_path: Path) -> dict:
+    if not meta_path.exists():
+        raise SystemExit(f"Missing index meta: {meta_path}")
+    return json.loads(meta_path.read_text(encoding="utf-8"))
+
+
+def restore_saved_index(strategy: str, index, *, settings) -> dict:
+    """Load local artifacts and upsert to Pinecone (no re-embed)."""
+    paths = index_paths(strategy)
+    missing = [path for path in paths.values() if not path.exists()]
+    if missing:
+        names = ", ".join(str(path) for path in missing)
+        raise SystemExit(f"Missing saved index artifact(s): {names}")
+
+    meta = load_index_meta(paths["meta"])
+    chunks = load_chunks(paths["chunks"])
+    embeddings = np.load(paths["embeddings"])
+
+    if len(chunks) != embeddings.shape[0]:
+        raise SystemExit(
+            f"Index mismatch for {strategy}: {len(chunks)} chunks in JSONL, "
+            f"{embeddings.shape[0]} rows in embeddings file"
+        )
+
+    clear_index(index, index_name=settings.pinecone_index_name)
+    upsert_chunks(
+        chunks,
+        embeddings,
+        index,
+        index_name=settings.pinecone_index_name,
+    )
+    print(f"restored Pinecone from {strategy} artifacts ({len(chunks)} chunks)")
+    return meta
 
 
 def run_query(
@@ -110,21 +117,26 @@ def run_query(
 
 def run_index(
     args: argparse.Namespace,
+    strategy: str,
     client: voyageai.Client,
     index,
     settings,
-) -> None:
+) -> dict[str, Path]:
     files = sorted(args.file_dir.glob("*.md"))
-    if not files:
+    pdf_files = sorted(args.file_dir.glob("*.pdf"))
+
+    if not pdf_files and not files:
         print(
-            f"warning: no *.md files in {args.file_dir.resolve()}; index not written",
+            f"warning: no *.pdf or *.md files in {args.file_dir.resolve()}; index not written",
             file=sys.stderr,
         )
         raise SystemExit(1)
 
+    paths = index_paths(strategy)
     chunks = collect_chunks(
         files,
-        strategy=args.strategy,
+        pdf_files=pdf_files,
+        strategy=strategy,
         chunk_size=args.chunk_size,
         overlap=args.overlap,
     )
@@ -132,15 +144,20 @@ def run_index(
     meta = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "file_dir": str(args.file_dir.resolve()),
-        "sources": [path.name for path in files],
-        "strategy": args.strategy,
+        "sources": [path.name for path in files + pdf_files],
+        "strategy": strategy,
         "chunk_size": args.chunk_size,
         "overlap": args.overlap,
         "embed_model": settings.voyage_embedding_model,
         "pinecone_index": settings.pinecone_index_name,
         "n_chunks": len(chunks),
     }
-    write_local_index(chunks, meta)
+    write_local_index(
+        chunks,
+        meta,
+        chunk_path=paths["chunks"],
+        meta_path=paths["meta"],
+    )
 
     embeddings = embed_texts(
         [chunk["text"] for chunk in chunks],
@@ -156,9 +173,10 @@ def run_index(
         index_name=settings.pinecone_index_name,
     )
 
-    np.save(EMBEDDINGS_PATH, embeddings)
-    print(f"saved: {EMBEDDINGS_PATH}")
+    np.save(paths["embeddings"], embeddings)
+    print(f"saved: {paths['embeddings']}")
     print(f"embedding_dim: {embeddings.shape[1]}")
+    return paths
 
 
 def main() -> None:
@@ -181,7 +199,7 @@ def main() -> None:
         print_results(results)
         return
 
-    run_index(args, client=client, index=index, settings=settings)
+    run_index(args, args.strategy, client, index, settings)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,7 @@
 
 import argparse
 from pathlib import Path
-
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_FILE_PATH = ROOT_DIR / "phase2" / "docs" / "rag_notes.md"
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_OVERLAP = 50
+import fitz
 
 def load_markdown(path:Path)->str:
     with open(path,"r",encoding="utf-8") as f:
@@ -58,7 +53,7 @@ def chunk_fixed(text:str,chunk_size:int,overlap:int)-> list[str]:
     return chunks
 
 
-def chunk_text(text:str,strategy:str, chunk_size:int, overlap:int)-> list[str]:
+def chunk_text(text:str, strategy:str, chunk_size:int, overlap:int)-> list[str]:
 
     if strategy == "paragraph":
         return chunk_paragraphs(text, chunk_size, overlap)
@@ -67,26 +62,52 @@ def chunk_text(text:str,strategy:str, chunk_size:int, overlap:int)-> list[str]:
     else:
         raise ValueError(f"Invalid strategy: {strategy}")
 
+def collect_chunks(
+    files: list[Path],
+    pdf_files: list[Path] = [],
+    *,
+    strategy: str,
+    chunk_size: int,
+    overlap: int,
+) -> list[dict]:
+    records: list[dict] = []
+    next_id = 0
+
+    for path in files:
+        text = load_markdown(path)
+        texts = chunk_text(text, strategy, chunk_size, overlap)
+        for text_chunk in texts:
+            records.append(
+                {
+                    "id": next_id,
+                    "source": path.name,
+                    "strategy": strategy,
+                    "chunk_size": chunk_size,
+                    "overlap": overlap,
+                    "text": text_chunk,
+                }
+            )
+            next_id += 1
+        print(f"file: {path.name}, n_chunks: {len(texts)}")
     
+    for path in pdf_files:
+        doc = fitz.open(path)
+        text = ""
 
-def parse_args()-> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--file_path", type=Path, default=DEFAULT_FILE_PATH)
-    parser.add_argument("--strategy", default="paragraph", choices=["paragraph", "fixed"])
-    parser.add_argument("--chunk_size", type=int, default=DEFAULT_CHUNK_SIZE)
-    parser.add_argument("--overlap", type=int, default=DEFAULT_OVERLAP)
-    return parser.parse_args()
+        for page_num, page in enumerate(doc):
+            text += page.get_text()
+        
+        texts = chunk_text(text, strategy, chunk_size, overlap)
+        for text_chunk in texts:
+            records.append({
+                "id": next_id,
+                "source": path.name,
+                "strategy": strategy,
+                "chunk_size": chunk_size,
+                "overlap": overlap,
+                "text": text_chunk,
+            })
+            next_id += 1
+        print(f"file: {path.name}, n_chunks: {len(texts)}")
 
-def main()-> None:
-    args = parse_args()
-    
-    text = load_markdown(args.file_path)
-    chunks = chunk_text(text, args.strategy, args.chunk_size, args.overlap)
-
-    print(f"n_chunks: {len(chunks)}")
-
-
-
-
-if __name__ == "__main__":
-    main()
+    return records
